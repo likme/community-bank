@@ -7,7 +7,7 @@ A clean clone must be able to run the full scenario without manual steps.
 
 ```
 make e2e
-````
+```
 
 This command is the **only supported entry point** for validation.
 
