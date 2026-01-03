@@ -5,12 +5,15 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INFRA_DIR="${ROOT_DIR}/infra"
 LEDGER_DIR="${ROOT_DIR}/core-ledger"
 
-need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing dependency: $1"; exit 1; }; }
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing dependency: $1" >&2; exit 1; }; }
 need curl
 need jq
 need go
 
+LOG_FILE="/tmp/core-ledger.log"
+
 # Config
+unset LEDGER_DB_DSN
 export LEDGER_HTTP_ADDR="${LEDGER_HTTP_ADDR:-:8080}"
 LEDGER_URL="${LEDGER_URL:-http://localhost:8080}"
 
@@ -26,8 +29,8 @@ get_env_var() {
 
 fail() {
   echo "E2E FAILED: $*" >&2
-  echo "---- /tmp/core-ledger.log (tail) ----" >&2
-  tail -n 120 /tmp/core-ledger.log 2>/dev/null || true
+  echo "---- ${LOG_FILE} (tail) ----" >&2
+  tail -n 200 "${LOG_FILE}" 2>/dev/null || true
   exit 1
 }
 
@@ -39,17 +42,17 @@ if [ ! -f .env ]; then
   cp .env.example .env
 fi
 
+# Start infra (must have run bootstrap in infra make up)
 make up >/dev/null
 
 # Read the actual Postgres port chosen by bootstrap_env.sh
 ENV_FILE="${INFRA_DIR}/.env"
 PGPORT="$(get_env_var "$ENV_FILE" "POSTGRES_PORT")"
 if [ -z "$PGPORT" ]; then
-  # fallback to default
-  PGPORT="55432"
+  fail "POSTGRES_PORT missing from ${ENV_FILE} (bootstrap_env.sh did not write it)"
 fi
 
-export LEDGER_DB_DSN="${LEDGER_DB_DSN:-postgres://ledger:ledger@localhost:${PGPORT}/ledger?sslmode=disable}"
+export LEDGER_DB_DSN="postgres://ledger:ledger@localhost:${PGPORT}/ledger?sslmode=disable"
 
 echo "  Using POSTGRES_PORT=$PGPORT"
 echo "  Using LEDGER_DB_DSN=$LEDGER_DB_DSN"
@@ -57,7 +60,11 @@ echo "  Using LEDGER_DB_DSN=$LEDGER_DB_DSN"
 echo "[2/6] Starting core-ledger server"
 cd "$LEDGER_DIR"
 
-go run ./cmd/server >/tmp/core-ledger.log 2>&1 &
+: > "${LOG_FILE}"
+
+# Pass env explicitly to remove any ambiguity
+LEDGER_DB_DSN="$LEDGER_DB_DSN" LEDGER_HTTP_ADDR="$LEDGER_HTTP_ADDR" \
+  go run ./cmd/server >"${LOG_FILE}" 2>&1 &
 SERVER_PID=$!
 
 cleanup() {
@@ -67,8 +74,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Wait for health
-for i in {1..80}; do
+# Wait for health and fail fast if process dies
+for i in {1..120}; do
+  if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+    fail "core-ledger process exited early"
+  fi
   if curl -fsS "${LEDGER_URL}/healthz" >/dev/null 2>&1; then
     break
   fi
