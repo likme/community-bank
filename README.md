@@ -71,7 +71,8 @@ Expected output ends with: E2E OK
 
 - If port 8080 is already in use, the E2E script will pick a free port automatically.
 
-## Troubleshooting
+
+## Troubleshooting
 
 ### Port already in use (8080)
 
@@ -81,7 +82,7 @@ The E2E script uses a free port automatically. If you run the server manually, e
 ss -ltnp | grep ':8080' || true
 ```
 
-### Docker leftovers
+### Docker leftovers
 
 If you need to wipe project containers/networks:
 
@@ -89,12 +90,6 @@ If you need to wipe project containers/networks:
 docker ps -a --filter "name=cbp-" --format "{{.ID}}" | xargs -r docker rm -f
 docker network ls --filter "name=infra_default" -q | xargs -r docker network rm
 ```
-
-
-
-
-
-
 
 
 
