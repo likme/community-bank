@@ -15,4 +15,4 @@ ledger-test:
 	cd core-ledger && go test ./...
 
 e2e:
-	./scripts/e2e_smoke.sh
+	bash ./scripts/e2e_smoke.sh
